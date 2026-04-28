@@ -1,0 +1,93 @@
+  import KinectPV2.*;
+import processing.serial.*;
+import cc.arduino.*; // IMPORTANTE: librería "Arduino (Firmata)" en Processing
+
+KinectPV2 kinect;
+Arduino arduino; // El objeto Arduino "zombi"
+
+//MAPA DE PINES (Cámbiar según  circuito) 
+int pinCodo   = 9;
+int pinPulgar = 2;
+int pinIndice = 3;
+int pinMedio  = 4;
+int pinAnular = 5;
+int pinMenique = 6;
+
+void setup() {
+  size(1280, 720, P3D);
+  kinect = new KinectPV2(this);
+  kinect.enableSkeletonColorMap(true);
+  kinect.init();
+
+  // Iniciar Arduino en modo Firmata
+  // El "0" es el primer puerto USB. Si no funciona, prueba con 1, 2...
+  arduino = new Arduino(this, Arduino.list()[0], 57600);
+  
+  // Configurar pines como Salidas de Servo
+  arduino.pinMode(pinCodo, Arduino.SERVO);
+  arduino.pinMode(pinPulgar, Arduino.SERVO);
+  arduino.pinMode(pinIndice, Arduino.SERVO);
+  arduino.pinMode(pinMedio, Arduino.SERVO);
+  arduino.pinMode(pinAnular, Arduino.SERVO);
+  arduino.pinMode(pinMenique, Arduino.SERVO);
+}
+
+void draw() {
+  background(0);
+  ArrayList<Skeleton> skeletonArray = kinect.getSkeletonColorMap();
+
+  for (int i = 0; i < skeletonArray.size(); i++) {
+    Skeleton skeleton = skeletonArray.get(i);
+    if (skeleton.isTracked()) {
+      
+      //CÁLCULO DEL CODO 
+      KJoint hombro = skeleton.getJoints()[KinectPV2.JointType_ShoulderRight];
+      KJoint codo   = skeleton.getJoints()[KinectPV2.JointType_ElbowRight];
+      KJoint muneca = skeleton.getJoints()[KinectPV2.JointType_WristRight];
+
+      float anguloCodo = calcularAngulo(hombro, codo, muneca);
+      
+      //ENVIA ORDEN DIRECTA AL SERVO DEL CODO
+      arduino.servoWrite(pinCodo, (int)anguloCodo);
+
+      //LÓGICA DE DEDOS 
+      int handState = skeleton.getRightHandState();
+      
+      if (handState == KinectPV2.HandState_Closed) {
+        cerrarMano();
+      } else if (handState == KinectPV2.HandState_Open) {
+        abrirMano();
+      } else if (handState == KinectPV2.HandState_Lasso) {
+        // EXTRA: Si haces el gesto de "pistola", solo se mueve el índice
+        arduino.servoWrite(pinIndice, 180);
+        arduino.servoWrite(pinPulgar, 0); 
+      }
+    }
+  }
+}
+
+// Funciones auxiliares para no repetir código
+void cerrarMano() {
+  arduino.servoWrite(pinPulgar, 180);
+  arduino.servoWrite(pinIndice, 180);
+  arduino.servoWrite(pinMedio, 180);
+  arduino.servoWrite(pinAnular, 180);
+  arduino.servoWrite(pinMenique, 180);
+}
+
+void abrirMano() {
+  arduino.servoWrite(pinPulgar, 0);
+  arduino.servoWrite(pinIndice, 0);
+  arduino.servoWrite(pinMedio, 0);
+  arduino.servoWrite(pinAnular, 0);
+  arduino.servoWrite(pinMenique, 0);
+}
+
+float calcularAngulo(KJoint a, KJoint b, KJoint c) {
+  float v1x = a.getX() - b.getX();
+  float v1y = a.getY() - b.getY();
+  float v2x = c.getX() - b.getX();
+  float v2y = c.getY() - b.getY();
+  float res = degrees(atan2(v2y, v2x) - atan2(v1y, v1x));
+  return constrain(abs(res), 0, 180);
+}
