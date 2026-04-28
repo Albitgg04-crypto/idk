@@ -20,7 +20,7 @@ void setup() {
   kinect.init();
 
   // Iniciar Arduino en modo Firmata
-  // El "0" es el primer puerto USB. Si no funciona, prueba con 1, 2...
+  // El 0 es el primer puerto USB. Si no funciona, prueba con 1, 2...
   arduino = new Arduino(this, Arduino.list()[0], 57600);
   
   // Configurar pines como Salidas de Servo
@@ -58,7 +58,6 @@ void draw() {
       } else if (handState == KinectPV2.HandState_Open) {
         abrirMano();
       } else if (handState == KinectPV2.HandState_Lasso) {
-        // EXTRA: Si haces el gesto de "pistola", solo se mueve el índice
         arduino.servoWrite(pinIndice, 180);
         arduino.servoWrite(pinPulgar, 0); 
       }
