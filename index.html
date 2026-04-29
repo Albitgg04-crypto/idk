@@ -60,6 +60,8 @@ void draw() {
       KJoint codo    = skeleton.getJoints()[KinectPV2.JointType_ElbowRight];
       KJoint muneca  = skeleton.getJoints()[KinectPV2.JointType_WristRight];
       KJoint espina  = skeleton.getJoints()[KinectPV2.JointType_SpineShoulder];
+      // AQUÍ SE AÑADE EL PUNTO DE LA MANO PARA LA MUÑECA
+      KJoint mano    = skeleton.getJoints()[KinectPV2.JointType_HandRight];
 
       // -----------------------------------------------------------
       // CÁLCULOS DE ÁNGULOS (Trigonometría 3D)
@@ -67,7 +69,7 @@ void draw() {
       
       // A. CODO (Flexión/Extensión)
       float angCodoR = calcularAngulo2D(hombro, codo, muneca);
-      float angCodoM = map(angCodoR, 20, 160, 0, 180); // Ajustar según hilos de freno
+      float angCodoM = map(angCodoR, 20, 160, 0, 180); 
       sCodo = sCodo + (angCodoM - sCodo) * factorSuavizado;
       
       // B. HOMBRO PITCH (Arriba/Abajo)
@@ -80,12 +82,19 @@ void draw() {
       float angHombroYM = map(angHombroY, -45, 45, 0, 180);
       sHombroY = sHombroY + (angHombroYM - sHombroY) * factorSuavizado;
 
+      // D. MUÑECA (AQUÍ ENTRA EL CÁLCULO DE TU MINI-CÓDIGO)
+      float angMunecaR = calcularAngulo2D(codo, muneca, mano);
+      float angMunecaM = map(angMunecaR, 0, 180, 0, 180);
+      sMuneca = sMuneca + (angMunecaM - sMuneca) * factorSuavizado;
+
       // -----------------------------------------------------------
       // APLICAR CONSTRAIN (Seguridad Física)
       // -----------------------------------------------------------
       int finalCodo    = int(constrain(sCodo, 5, 175));
       int finalHombroP = int(constrain(sHombroP, 10, 170));
       int finalHombroY = int(constrain(sHombroY, 10, 170));
+      // AQUÍ ENTRA LA SEGURIDAD DE LA MUÑECA
+      int finalMuneca  = int(constrain(sMuneca, 10, 170));
 
       // -----------------------------------------------------------
       // ENVIAR ÓRDENES AL ARDUINO
@@ -93,6 +102,8 @@ void draw() {
       arduino.servoWrite(PIN_CODO, finalCodo);
       arduino.servoWrite(PIN_HOMBRO_PITCH, finalHombroP);
       arduino.servoWrite(PIN_HOMBRO_YAW, finalHombroY);
+      // AQUÍ SE ENVÍA LA ORDEN AL SERVO DE LA MUÑECA
+      arduino.servoWrite(PIN_MUNECA, finalMuneca);
 
       // -----------------------------------------------------------
       // LÓGICA DE DEDOS (Basada en estado de la mano)
