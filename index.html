@@ -5,23 +5,19 @@ import cc.arduino.*;
 KinectPV2 kinect;
 Arduino arduino;
 
-// ==========================================
-// 1. CONFIGURACIÓN DE PINES (Cámbialos si es necesario)
-// ==========================================
+// 1. CONFIGURACIÓN DE PINES (Cámbiar)
 int PIN_HOMBRO_PITCH = 11; // Movimiento arriba/abajo
 int PIN_HOMBRO_YAW   = 10; // Movimiento izquierda/derecha
 int PIN_CODO         = 9;  
 int PIN_MUNECA       = 8;  
-// Pines de los Dedos
+// Pines de los dedos
 int PIN_PULGAR = 2;
 int PIN_INDICE = 3;
 int PIN_MEDIO  = 4;
 int PIN_ANULAR = 5;
 int PIN_MENIQUE = 6;
 
-// ==========================================
-// 2. VARIABLES DE SUAVIZADO (Smoothing)
-// ==========================================
+//Smoothing
 float sHombroP = 90, sHombroY = 90, sCodo = 90, sMuneca = 90;
 float factorSuavizado = 0.12; // 0.01 (muy lento) a 1.0 (instantáneo/vibrante)
 
@@ -33,13 +29,13 @@ void setup() {
   kinect.enableSkeletonColorMap(true);
   kinect.init();
 
-  // Iniciar Arduino (Firmata)
-  // Si da error, cambia el [0] por [1] o [2]
+  // Iniciar Arduino
+  // Si da error cambiamos el [0] por [1] o [2]
   println("Puertos disponibles: ");
   println(Arduino.list());
   arduino = new Arduino(this, Arduino.list()[0], 57600);
 
-  // Configurar todos los pines como Servos
+  // Configurar los pines como Servos
   int[] pines = {PIN_HOMBRO_PITCH, PIN_HOMBRO_YAW, PIN_CODO, PIN_MUNECA, 
                  PIN_PULGAR, PIN_INDICE, PIN_MEDIO, PIN_ANULAR, PIN_MENIQUE};
   for (int p : pines) {
@@ -55,75 +51,65 @@ void draw() {
     Skeleton skeleton = skeletonArray.get(i);
     if (skeleton.isTracked()) {
       
-      // OBTENER ARTICULACIONES (Lado Derecho)
+      // coger articulacions(lado Derecho)
       KJoint hombro  = skeleton.getJoints()[KinectPV2.JointType_ShoulderRight];
       KJoint codo    = skeleton.getJoints()[KinectPV2.JointType_ElbowRight];
       KJoint muneca  = skeleton.getJoints()[KinectPV2.JointType_WristRight];
       KJoint espina  = skeleton.getJoints()[KinectPV2.JointType_SpineShoulder];
-      // AQUÍ SE AÑADE EL PUNTO DE LA MANO PARA LA MUÑECA
+      // punto mano para muñeca
       KJoint mano    = skeleton.getJoints()[KinectPV2.JointType_HandRight];
 
-      // -----------------------------------------------------------
-      // CÁLCULOS DE ÁNGULOS (Trigonometría 3D)
-      // -----------------------------------------------------------
-      
-      // A. CODO (Flexión/Extensión)
+      // calculo angrulo
+    
+      // CODO(flexionar/extensionar)
       float angCodoR = calcularAngulo2D(hombro, codo, muneca);
       float angCodoM = map(angCodoR, 20, 160, 0, 180); 
       sCodo = sCodo + (angCodoM - sCodo) * factorSuavizado;
       
-      // B. HOMBRO PITCH (Arriba/Abajo)
+      //HOMBRO PITCH (Arriba/Abajo)
       float angHombroP = degrees(atan2(codo.getY() - hombro.getY(), codo.getZ() - hombro.getZ()));
       float angHombroPM = map(angHombroP, -90, 90, 0, 180);
       sHombroP = sHombroP + (angHombroPM - sHombroP) * factorSuavizado;
 
-      // C. HOMBRO YAW (Izquierda/Derecha - Plano X)
+      //HOMBRO YAW (Izquierda/Derecha X)
       float angHombroY = degrees(atan2(codo.getX() - hombro.getX(), codo.getZ() - hombro.getZ()));
       float angHombroYM = map(angHombroY, -45, 45, 0, 180);
       sHombroY = sHombroY + (angHombroYM - sHombroY) * factorSuavizado;
 
-      // D. MUÑECA (AQUÍ ENTRA EL CÁLCULO DE TU MINI-CÓDIGO)
+      //MUÑECA
       float angMunecaR = calcularAngulo2D(codo, muneca, mano);
       float angMunecaM = map(angMunecaR, 0, 180, 0, 180);
       sMuneca = sMuneca + (angMunecaM - sMuneca) * factorSuavizado;
 
-      // -----------------------------------------------------------
-      // APLICAR CONSTRAIN (Seguridad Física)
-      // -----------------------------------------------------------
+      // constrain,cambiar
       int finalCodo    = int(constrain(sCodo, 5, 175));
       int finalHombroP = int(constrain(sHombroP, 10, 170));
       int finalHombroY = int(constrain(sHombroY, 10, 170));
-      // AQUÍ ENTRA LA SEGURIDAD DE LA MUÑECA
       int finalMuneca  = int(constrain(sMuneca, 10, 170));
 
-      // -----------------------------------------------------------
-      // ENVIAR ÓRDENES AL ARDUINO
-      // -----------------------------------------------------------
+      // mandar a arudino
       arduino.servoWrite(PIN_CODO, finalCodo);
       arduino.servoWrite(PIN_HOMBRO_PITCH, finalHombroP);
       arduino.servoWrite(PIN_HOMBRO_YAW, finalHombroY);
-      // AQUÍ SE ENVÍA LA ORDEN AL SERVO DE LA MUÑECA
       arduino.servoWrite(PIN_MUNECA, finalMuneca);
 
-      // -----------------------------------------------------------
-      // LÓGICA DE DEDOS (Basada en estado de la mano)
-      // -----------------------------------------------------------
+      // REDOS (estado de la mano)
       int handState = skeleton.getRightHandState();
       controlarDedos(handState);
 
-      // Dibujar Visualización
+      //  Visualización
       dibujarDebugger(finalHombroP, finalCodo, handState);
     }
   }
 }
 
-// Función para abrir/cerrar todos los dedos según el Kinect
+// abrir/cerrar todos los dedos según el Kinect
 void controlarDedos(int state) {
   int pos = 0;
   if (state == KinectPV2.HandState_Closed) pos = 180; // Cerrar
   else if (state == KinectPV2.HandState_Open) pos = 0; // Abrir
   else if (state == KinectPV2.HandState_Lasso) {
-    // Modo especial: solo cierra índice y medio (pistola)
+    //solo cierra índice y medio (pistola)
     arduino.servoWrite(PIN_INDICE, 180);
     arduino.servoWrite(PIN_MEDIO, 180);
     return;
@@ -136,7 +122,7 @@ void controlarDedos(int state) {
   arduino.servoWrite(PIN_MENIQUE, pos);
 }
 
-// Cálculo de ángulo entre 3 puntos
+// Cálculo ángulo entre 3 puntos
 float calcularAngulo2D(KJoint a, KJoint b, KJoint c) {
   float v1x = a.getX() - b.getX();
   float v1y = a.getY() - b.getY();
