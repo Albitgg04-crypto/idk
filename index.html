@@ -1,92 +1,148 @@
-  import KinectPV2.*;
+import KinectPV2.*;
 import processing.serial.*;
-import cc.arduino.*; // IMPORTANTE: librería "Arduino (Firmata)" en Processing
+import cc.arduino.*;
 
 KinectPV2 kinect;
-Arduino arduino; // El objeto Arduino "zombi"
+Arduino arduino;
 
-//MAPA DE PINES (Cámbiar según  circuito) 
-int pinCodo   = 9;
-int pinPulgar = 2;
-int pinIndice = 3;
-int pinMedio  = 4;
-int pinAnular = 5;
-int pinMenique = 6;
+// ==========================================
+// 1. CONFIGURACIÓN DE PINES (Cámbialos si es necesario)
+// ==========================================
+int PIN_HOMBRO_PITCH = 11; // Movimiento arriba/abajo
+int PIN_HOMBRO_YAW   = 10; // Movimiento izquierda/derecha
+int PIN_CODO         = 9;  
+int PIN_MUNECA       = 8;  
+// Pines de los Dedos
+int PIN_PULGAR = 2;
+int PIN_INDICE = 3;
+int PIN_MEDIO  = 4;
+int PIN_ANULAR = 5;
+int PIN_MENIQUE = 6;
+
+// ==========================================
+// 2. VARIABLES DE SUAVIZADO (Smoothing)
+// ==========================================
+float sHombroP = 90, sHombroY = 90, sCodo = 90, sMuneca = 90;
+float factorSuavizado = 0.12; // 0.01 (muy lento) a 1.0 (instantáneo/vibrante)
 
 void setup() {
-  size(1280, 720, P3D);
+  size(1024, 768, P3D);
+  
+  // Iniciar Kinect
   kinect = new KinectPV2(this);
   kinect.enableSkeletonColorMap(true);
   kinect.init();
 
-  // Iniciar Arduino en modo Firmata
-  // El 0 es el primer puerto USB. Si no funciona, prueba con 1, 2...
+  // Iniciar Arduino (Firmata)
+  // Si da error, cambia el [0] por [1] o [2]
+  println("Puertos disponibles: ");
+  println(Arduino.list());
   arduino = new Arduino(this, Arduino.list()[0], 57600);
-  
-  // Configurar pines como Salidas de Servo
-  arduino.pinMode(pinCodo, Arduino.SERVO);
-  arduino.pinMode(pinPulgar, Arduino.SERVO);
-  arduino.pinMode(pinIndice, Arduino.SERVO);
-  arduino.pinMode(pinMedio, Arduino.SERVO);
-  arduino.pinMode(pinAnular, Arduino.SERVO);
-  arduino.pinMode(pinMenique, Arduino.SERVO);
+
+  // Configurar todos los pines como Servos
+  int[] pines = {PIN_HOMBRO_PITCH, PIN_HOMBRO_YAW, PIN_CODO, PIN_MUNECA, 
+                 PIN_PULGAR, PIN_INDICE, PIN_MEDIO, PIN_ANULAR, PIN_MENIQUE};
+  for (int p : pines) {
+    arduino.pinMode(p, Arduino.SERVO);
+  }
 }
 
 void draw() {
-  background(0);
+  background(20);
   ArrayList<Skeleton> skeletonArray = kinect.getSkeletonColorMap();
 
   for (int i = 0; i < skeletonArray.size(); i++) {
     Skeleton skeleton = skeletonArray.get(i);
     if (skeleton.isTracked()) {
       
-      //CÁLCULO DEL CODO 
-      KJoint hombro = skeleton.getJoints()[KinectPV2.JointType_ShoulderRight];
-      KJoint codo   = skeleton.getJoints()[KinectPV2.JointType_ElbowRight];
-      KJoint muneca = skeleton.getJoints()[KinectPV2.JointType_WristRight];
+      // OBTENER ARTICULACIONES (Lado Derecho)
+      KJoint hombro  = skeleton.getJoints()[KinectPV2.JointType_ShoulderRight];
+      KJoint codo    = skeleton.getJoints()[KinectPV2.JointType_ElbowRight];
+      KJoint muneca  = skeleton.getJoints()[KinectPV2.JointType_WristRight];
+      KJoint espina  = skeleton.getJoints()[KinectPV2.JointType_SpineShoulder];
 
-      float anguloCodo = calcularAngulo(hombro, codo, muneca);
+      // -----------------------------------------------------------
+      // CÁLCULOS DE ÁNGULOS (Trigonometría 3D)
+      // -----------------------------------------------------------
       
-      //ENVIA ORDEN DIRECTA AL SERVO DEL CODO
-      arduino.servoWrite(pinCodo, (int)anguloCodo);
+      // A. CODO (Flexión/Extensión)
+      float angCodoR = calcularAngulo2D(hombro, codo, muneca);
+      float angCodoM = map(angCodoR, 20, 160, 0, 180); // Ajustar según hilos de freno
+      sCodo = sCodo + (angCodoM - sCodo) * factorSuavizado;
+      
+      // B. HOMBRO PITCH (Arriba/Abajo)
+      float angHombroP = degrees(atan2(codo.getY() - hombro.getY(), codo.getZ() - hombro.getZ()));
+      float angHombroPM = map(angHombroP, -90, 90, 0, 180);
+      sHombroP = sHombroP + (angHombroPM - sHombroP) * factorSuavizado;
 
-      //LÓGICA DE DEDOS 
+      // C. HOMBRO YAW (Izquierda/Derecha - Plano X)
+      float angHombroY = degrees(atan2(codo.getX() - hombro.getX(), codo.getZ() - hombro.getZ()));
+      float angHombroYM = map(angHombroY, -45, 45, 0, 180);
+      sHombroY = sHombroY + (angHombroYM - sHombroY) * factorSuavizado;
+
+      // -----------------------------------------------------------
+      // APLICAR CONSTRAIN (Seguridad Física)
+      // -----------------------------------------------------------
+      int finalCodo    = int(constrain(sCodo, 5, 175));
+      int finalHombroP = int(constrain(sHombroP, 10, 170));
+      int finalHombroY = int(constrain(sHombroY, 10, 170));
+
+      // -----------------------------------------------------------
+      // ENVIAR ÓRDENES AL ARDUINO
+      // -----------------------------------------------------------
+      arduino.servoWrite(PIN_CODO, finalCodo);
+      arduino.servoWrite(PIN_HOMBRO_PITCH, finalHombroP);
+      arduino.servoWrite(PIN_HOMBRO_YAW, finalHombroY);
+
+      // -----------------------------------------------------------
+      // LÓGICA DE DEDOS (Basada en estado de la mano)
+      // -----------------------------------------------------------
       int handState = skeleton.getRightHandState();
-      
-      if (handState == KinectPV2.HandState_Closed) {
-        cerrarMano();
-      } else if (handState == KinectPV2.HandState_Open) {
-        abrirMano();
-      } else if (handState == KinectPV2.HandState_Lasso) {
-        arduino.servoWrite(pinIndice, 180);
-        arduino.servoWrite(pinPulgar, 0); 
-      }
+      controlarDedos(handState);
+
+      // Dibujar Visualización
+      dibujarDebugger(finalHombroP, finalCodo, handState);
     }
   }
 }
 
-// Funciones auxiliares para no repetir código
-void cerrarMano() {
-  arduino.servoWrite(pinPulgar, 180);
-  arduino.servoWrite(pinIndice, 180);
-  arduino.servoWrite(pinMedio, 180);
-  arduino.servoWrite(pinAnular, 180);
-  arduino.servoWrite(pinMenique, 180);
+// Función para abrir/cerrar todos los dedos según el Kinect
+void controlarDedos(int state) {
+  int pos = 0;
+  if (state == KinectPV2.HandState_Closed) pos = 180; // Cerrar
+  else if (state == KinectPV2.HandState_Open) pos = 0; // Abrir
+  else if (state == KinectPV2.HandState_Lasso) {
+    // Modo especial: solo cierra índice y medio (pistola)
+    arduino.servoWrite(PIN_INDICE, 180);
+    arduino.servoWrite(PIN_MEDIO, 180);
+    return;
+  }
+
+  arduino.servoWrite(PIN_PULGAR, pos);
+  arduino.servoWrite(PIN_INDICE, pos);
+  arduino.servoWrite(PIN_MEDIO, pos);
+  arduino.servoWrite(PIN_ANULAR, pos);
+  arduino.servoWrite(PIN_MENIQUE, pos);
 }
 
-void abrirMano() {
-  arduino.servoWrite(pinPulgar, 0);
-  arduino.servoWrite(pinIndice, 0);
-  arduino.servoWrite(pinMedio, 0);
-  arduino.servoWrite(pinAnular, 0);
-  arduino.servoWrite(pinMenique, 0);
-}
-
-float calcularAngulo(KJoint a, KJoint b, KJoint c) {
+// Cálculo de ángulo entre 3 puntos
+float calcularAngulo2D(KJoint a, KJoint b, KJoint c) {
   float v1x = a.getX() - b.getX();
   float v1y = a.getY() - b.getY();
   float v2x = c.getX() - b.getX();
   float v2y = c.getY() - b.getY();
   float res = degrees(atan2(v2y, v2x) - atan2(v1y, v1x));
-  return constrain(abs(res), 0, 180);
+  return abs(res);
 }
+
+void dibujarDebugger(int h, int c, int s) {
+  fill(0, 255, 0);
+  textSize(24);
+  text("Hombro Pitch: " + h, 50, 50);
+  text("Codo Flexión: " + c, 50, 80);
+  String st = "Desconocido";
+  if (s == 1) st = "CERRADO";
+  if (s == 0) st = "ABIERTO";
+  text("Mano: " + st, 50, 110);
+}
+    
