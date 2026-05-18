@@ -1,55 +1,68 @@
+
+import org.firmata.*;
 import KinectPV2.*;
 import processing.serial.*;
 import cc.arduino.*;
+import KinectPV2.KJoint;
 
-KinectPV2 kinect;
-Arduino arduino;
 
-// 1. CONFIGURACIÓN DE PINES (Cámbiar)
-int PIN_HOMBRO_PITCH = 11; // Movimiento arriba/abajo
-int PIN_HOMBRO_YAW   = 10; // Movimiento izquierda/derecha
-int PIN_CODO         = 9;  
-int PIN_MUNECA       = 8;  
+KinectPV2 kinect; // representa kinecct
+Arduino arduino; //representa arduino
+
+// 1. CONFIGURACIÓN DE PINES 
+int PIN_HOMBRO_PITCH = 6; // Movimiento arriba/abajo
+int PIN_HOMBRO_YAW   = 13; // Movimiento izquierda/derecha
+int PIN_CODO         = 2;  // esperar servo biceps
+int PIN_MUNECA       = 12;  
 // Pines de los dedos
-int PIN_PULGAR = 2;
-int PIN_INDICE = 3;
-int PIN_MEDIO  = 4;
-int PIN_ANULAR = 5;
-int PIN_MENIQUE = 6;
+int PIN_INDICE = 9;
+int PIN_PULGAR = 8;
+int PIN_CORAZON  = 11;
+int PIN_PULGARFALANGE = 7;
+int PIN_MENIQUE = 10;
 
-//Smoothing
+
+
+ 
+//Smoothing/para que no haya trompicones
 float sHombroP = 90, sHombroY = 90, sCodo = 90, sMuneca = 90;
-float factorSuavizado = 0.12; // 0.01 (muy lento) a 1.0 (instantáneo/vibrante)
+float factorSuavizado = 0.12; // 0.01 (muy lento) a 1.0 (vibrante)
+//dice que tan lento sigue el robot al humano
 
 void setup() {
-  size(1024, 768, P3D);
+  size(1366, 768, P3D); //tamaño pantalla
   
   // Iniciar Kinect
   kinect = new KinectPV2(this);
-  kinect.enableSkeletonColorMap(true);
-  kinect.init();
+  kinect.enableSkeletonColorMap(true); //busca esqueletos sobre la camara(imagen)
+  kinect.enableColorImg(true);//activA QUE SE VEA LA CAMARA
+  kinect.init(); //arranca el kinect
 
   // Iniciar Arduino
   // Si da error cambiamos el [0] por [1] o [2]
   println("Puertos disponibles: ");
-  println(Arduino.list());
-  arduino = new Arduino(this, Arduino.list()[0], 57600);
+  println(Arduino.list()); //marca los puertos COM que detecta el pc-cito
+  arduino = new Arduino(this, Arduino.list()[0], 57600); //se conecta al primer aduino de la lista a 57600 baudios(velocidad firmata)
+  
 
-  // Configurar los pines como Servos
+
+  // Configurar los pines como Servos/listya array para configurar todo de una ç(asignar un pin a servo)
   int[] pines = {PIN_HOMBRO_PITCH, PIN_HOMBRO_YAW, PIN_CODO, PIN_MUNECA, 
-                 PIN_PULGAR, PIN_INDICE, PIN_MEDIO, PIN_ANULAR, PIN_MENIQUE};
+                 PIN_PULGAR, PIN_INDICE, PIN_CORAZON, PIN_PULGARFALANGE, PIN_MENIQUE};
   for (int p : pines) {
-    arduino.pinMode(p, Arduino.SERVO);
+    arduino.pinMode(p, Arduino.SERVO); //avisa que en los pines hay servos,no luces
   }
 }
 
 void draw() {
-  background(20);
-  ArrayList<Skeleton> skeletonArray = kinect.getSkeletonColorMap();
+  background(225); //borrar fotogramas esqueletos
+  image(kinect.getColorImage(), 0, 0, width,height); //para que vaya la camara
+  ArrayList<KSkeleton> skeletonArray = kinect.getSkeletonColorMap();//lista de todos los cuerpos que detecte el kinect
 
   for (int i = 0; i < skeletonArray.size(); i++) {
-    Skeleton skeleton = skeletonArray.get(i);
-    if (skeleton.isTracked()) {
+    KSkeleton skeleton = skeletonArray.get(i);
+    if (skeleton.isTracked()) { //solo si ve a una persona(el kinect)...
+      KJoint[] joints = skeleton.getJoints(); // ..pone todas las articulaciones
       
       // coger articulacions(lado Derecho)
       KJoint hombro  = skeleton.getJoints()[KinectPV2.JointType_ShoulderRight];
@@ -57,70 +70,220 @@ void draw() {
       KJoint muneca  = skeleton.getJoints()[KinectPV2.JointType_WristRight];
       KJoint espina  = skeleton.getJoints()[KinectPV2.JointType_SpineShoulder];
       // punto mano para muñeca
-      KJoint mano    = skeleton.getJoints()[KinectPV2.JointType_HandRight];
-
-      // calculo angrulo
+    //  KJoint mano    = skeleton.getJoints()[KinectPV2.JointType_HandRight];
+       println("Hombro Arriba/abajo: ",sHombroP);
+  println("Hombro Estirado: ",sHombroY);
+  println("Codo: ",sCodo);
+  println("Muñeca: ",sMuneca);
+  println("Estado de la mano:" +skeleton.getRightHandState());
+      // calculo angulo
     
       // CODO(flexionar/extensionar)
       float angCodoR = calcularAngulo2D(hombro, codo, muneca);
-      float angCodoM = map(angCodoR, 20, 160, 0, 180); 
-      sCodo = sCodo + (angCodoM - sCodo) * factorSuavizado;
+      float angCodoM = map(angCodoR, 20, 160, 0, 180); //adapta rango humano al brazo
+     // sCodo = sCodo + (angCodoM - sCodo);
+      sCodo = sCodo + (angCodoM - sCodo) * factorSuavizado; //smooth....operator
+    
       
       //HOMBRO PITCH (Arriba/Abajo)
-      float angHombroP = degrees(atan2(codo.getY() - hombro.getY(), codo.getZ() - hombro.getZ()));
-      float angHombroPM = map(angHombroP, -90, 90, 0, 180);
+      float angHombroP = degrees(atan2(codo.getY() - hombro.getY(), codo.getZ() - hombro.getZ())); //usa trigonometris(atan2) para ver el angulo en la altura del codo segun el homrbo
+      float angHombroPM = map(angHombroP, -100, 100, 0, 180);
+     // sHombroP = sHombroP + (angHombroPM - sHombroP);
       sHombroP = sHombroP + (angHombroPM - sHombroP) * factorSuavizado;
 
       //HOMBRO YAW (Izquierda/Derecha X)
       float angHombroY = degrees(atan2(codo.getX() - hombro.getX(), codo.getZ() - hombro.getZ()));
-      float angHombroYM = map(angHombroY, -45, 45, 0, 180);
+      float angHombroYM = map(angHombroY, -120, 120, 0, 180);
+     // sHombroY = sHombroY + (angHombroYM - sHombroY);
       sHombroY = sHombroY + (angHombroYM - sHombroY) * factorSuavizado;
 
       //MUÑECA
-      float angMunecaR = calcularAngulo2D(codo, muneca, mano);
-      float angMunecaM = map(angMunecaR, 0, 180, 0, 180);
-      sMuneca = sMuneca + (angMunecaM - sMuneca) * factorSuavizado;
+      
+      KJoint puntaMano = skeleton.getJoints()[KinectPV2.JointType_HandTipRight];
+      float angMunecaR = calcularAngulo2D(codo, muneca,puntaMano);
+      float angMunecaM = map(angMunecaR, 40, 140, 0, 180);
+      
+        //if (Float.isNaN(angMunecaR)) 
+        {
+ // angMunecaM = sMuneca; // Si falla, quédate donde estabas
+     // sMuneca = sMuneca + (angMunecaM - sMuneca);
+      sMuneca = sMuneca + (angMunecaM - sMuneca) * factorSuavizado;      
+      
+}
 
-      // constrain,cambiar
+
+
+      // constrain limitaciones,para no forzar
       int finalCodo    = int(constrain(sCodo, 5, 175));
       int finalHombroP = int(constrain(sHombroP, 10, 170));
       int finalHombroY = int(constrain(sHombroY, 10, 170));
       int finalMuneca  = int(constrain(sMuneca, 10, 170));
-
-      // mandar a arudino
-      arduino.servoWrite(PIN_CODO, finalCodo);
-      arduino.servoWrite(PIN_HOMBRO_PITCH, finalHombroP);
-      arduino.servoWrite(PIN_HOMBRO_YAW, finalHombroY);
-      arduino.servoWrite(PIN_MUNECA, finalMuneca);
-
-      // REDOS (estado de la mano)
+      
+      
+ // REDOS (estado de la mano)
       int handState = skeleton.getRightHandState();
-      controlarDedos(handState);
+    controlarDedos(handState);
+   
+
+
+      
+      
+      
+      // Solo mandamos al arduino si los números son okay :)
+if (!Float.isNaN(sCodo) && !Float.isNaN(sHombroP) && !Float.isNaN(sHombroY)) {
+  arduino.servoWrite(PIN_CODO, finalCodo);
+  arduino.servoWrite(PIN_HOMBRO_PITCH, finalHombroP);
+  arduino.servoWrite(PIN_HOMBRO_YAW, finalHombroY);
+  arduino.servoWrite(PIN_MUNECA, finalMuneca);
+ 
+}
+
+ 
+
+ 
 
       //  Visualización
-      dibujarDebugger(finalHombroP, finalCodo, handState);
+      drawBody(joints); //dibuja llas lineas amarilla sdel esqueleto
+      dibujarDebugger(finalHombroP,finalCodo,skeleton.getRightHandState()); //muestra datos tecnicos
     }
   }
 }
+// void mousePressed() {
+  // Al presionar el raton, el índice se cierra (180 grados)
+//arduino.servoWrite(PIN_PULGAR, 180);
+// println("DEBUG: Mouse presionado - Cerrando índice");
+  //arduino.digitalWrite(13, Arduino.HIGH); // Enciende la luz de la placa
+  //arduino.servoWrite(PIN_INDICE, 180);
+ // println("DEBUG: Mouse presionado");
+//}
 
-// abrir/cerrar todos los dedos según el Kinect
-void controlarDedos(int state) {
-  int pos = 0;
-  if (state == KinectPV2.HandState_Closed) pos = 180; // Cerrar
-  else if (state == KinectPV2.HandState_Open) pos = 0; // Abrir
-  else if (state == KinectPV2.HandState_Lasso) {
-    //solo cierra índice y medio (pistola)
-    arduino.servoWrite(PIN_INDICE, 180);
-    arduino.servoWrite(PIN_MEDIO, 180);
-    return;
+
+
+//void mouseReleased() {
+  // Al soltar el raton, el índice vuelve a 0
+  //arduino.servoWrite(PIN_PULGAR, 0);
+ // println("DEBUG: Mouse soltado - Abriendo índice");
+//}
+
+void drawBody(KJoint[] joints) {
+  stroke(255,255,0); //linea amarilla
+  strokeWeight(5); //grosor
+
+//funciones para el esqueleto amarillo
+  drawBone(joints, KinectPV2.JointType_Head, KinectPV2.JointType_Neck); 
+  drawBone(joints, KinectPV2.JointType_Neck, KinectPV2.JointType_SpineShoulder);
+  drawBone(joints, KinectPV2.JointType_SpineShoulder, KinectPV2.JointType_SpineMid);
+  drawBone(joints, KinectPV2.JointType_SpineMid, KinectPV2.JointType_SpineBase);
+  drawBone(joints, KinectPV2.JointType_SpineShoulder, KinectPV2.JointType_ShoulderRight);
+  drawBone(joints, KinectPV2.JointType_SpineShoulder, KinectPV2.JointType_ShoulderLeft);
+  drawBone(joints, KinectPV2.JointType_SpineBase, KinectPV2.JointType_HipRight);
+  drawBone(joints, KinectPV2.JointType_SpineBase, KinectPV2.JointType_HipLeft);
+
+  // Brazo Derecho
+  drawBone(joints, KinectPV2.JointType_ShoulderRight, KinectPV2.JointType_ElbowRight);
+  drawBone(joints, KinectPV2.JointType_ElbowRight, KinectPV2.JointType_WristRight);
+  drawBone(joints, KinectPV2.JointType_WristRight, KinectPV2.JointType_HandRight);
+  drawBone(joints, KinectPV2.JointType_HandRight, KinectPV2.JointType_HandTipRight);
+  drawBone(joints, KinectPV2.JointType_WristRight, KinectPV2.JointType_ThumbRight);
+
+  // Brazo Izquierdo
+  drawBone(joints, KinectPV2.JointType_ShoulderLeft, KinectPV2.JointType_ElbowLeft);
+  drawBone(joints, KinectPV2.JointType_ElbowLeft, KinectPV2.JointType_WristLeft);
+  drawBone(joints, KinectPV2.JointType_WristLeft, KinectPV2.JointType_HandLeft);
+  drawBone(joints, KinectPV2.JointType_HandLeft, KinectPV2.JointType_HandTipLeft);
+  drawBone(joints, KinectPV2.JointType_WristLeft, KinectPV2.JointType_ThumbLeft);
+
+  // Pierna Derecha
+  drawBone(joints, KinectPV2.JointType_HipRight, KinectPV2.JointType_KneeRight);
+  drawBone(joints, KinectPV2.JointType_KneeRight, KinectPV2.JointType_AnkleRight);
+  drawBone(joints, KinectPV2.JointType_AnkleRight, KinectPV2.JointType_FootRight);
+
+  // Pierna Izquierda
+  drawBone(joints, KinectPV2.JointType_HipLeft, KinectPV2.JointType_KneeLeft);
+  drawBone(joints, KinectPV2.JointType_KneeLeft, KinectPV2.JointType_AnkleLeft);
+  drawBone(joints, KinectPV2.JointType_AnkleLeft, KinectPV2.JointType_FootLeft);
+  
+ 
+  
+
+
+  drawJoint(joints, KinectPV2.JointType_HandTipLeft);
+  drawJoint(joints, KinectPV2.JointType_HandTipRight);
+  drawJoint(joints, KinectPV2.JointType_FootLeft);
+  drawJoint(joints, KinectPV2.JointType_FootRight);
+
+  drawJoint(joints, KinectPV2.JointType_ThumbLeft);
+  drawJoint(joints, KinectPV2.JointType_ThumbRight);
+
+  drawJoint(joints, KinectPV2.JointType_Head);
+  
+  fill(255, 255, 0); 
+  noStroke();   for (int j = 0; j < joints.length; j++) {
+    drawJoint(joints, j);
   }
 
+   
+ 
+}
+  
+
+
+  void drawJoint(KJoint[] joints, int jointType) {
+  pushMatrix();
+  translate(joints[jointType].getX(), joints[jointType].getY(), joints[jointType].getZ());
+  ellipse(0, 0, 25, 25);
+  popMatrix();
+  }
+
+
+
+
+void drawBone(KJoint[] joints, int j1, int j2) {
+  line(joints[j1].getX(), joints[j1].getY(), joints[j1].getZ(), joints[j2].getX(), joints[j2].getY(), joints[j2].getZ());
+}
+
+void drawHandStateVisual(KJoint joint) { //como detecta la mano
+  noStroke();
+  if (joint.getState() == 3){ fill(255, 0, 0); // Cerrado = Rojo  (3) 
+  } else if (joint.getState()== 2) { fill(0, 255, 0); // Abierto = Verde (2)
+  }else{ fill(255,255,255); //blanco si no seguro (0,1)
+  }
+  pushMatrix();
+  translate(joint.getX(), joint.getY(), joint.getZ());
+  ellipse(0, 0, 70, 70); //(como de gordos son los puntos)
+  popMatrix();
+}
+
+
+void controlarDedos(int state) {
+  int pos = 0;
+  if (state == KinectPV2.HandState_Closed) {
+    pos = 180;
+  } else if (state == KinectPV2.HandState_Open) {
+    pos = 0;
+  }
+  
+  if (state == KinectPV2.HandState_Lasso) {
+    // PISTOLA: Solo cerramos estos dos y salimos de la función
+    arduino.servoWrite(PIN_INDICE, 0);
+    arduino.servoWrite(PIN_CORAZON, 0);
+    arduino.servoWrite(PIN_PULGAR, 180); // Opcional
+    return; 
+  }
+
+  // Esto solo se ejecuta si NO es pistola
   arduino.servoWrite(PIN_PULGAR, pos);
   arduino.servoWrite(PIN_INDICE, pos);
-  arduino.servoWrite(PIN_MEDIO, pos);
-  arduino.servoWrite(PIN_ANULAR, pos);
+  arduino.servoWrite(PIN_CORAZON, pos);
+  arduino.servoWrite(PIN_PULGARFALANGE, pos);
   arduino.servoWrite(PIN_MENIQUE, pos);
 }
+
+    
+
+
+ 
+
 
 // Cálculo ángulo entre 3 puntos
 float calcularAngulo2D(KJoint a, KJoint b, KJoint c) {
@@ -129,17 +292,22 @@ float calcularAngulo2D(KJoint a, KJoint b, KJoint c) {
   float v2x = c.getX() - b.getX();
   float v2y = c.getY() - b.getY();
   float res = degrees(atan2(v2y, v2x) - atan2(v1y, v1x));
-  return abs(res);
+  if (res > 180) res = 360 - res;
+if (res < -180) res = 360 + res;
+return abs(res);
+ 
 }
 
+//muestra grados en la pantalla para quitar errores
 void dibujarDebugger(int h, int c, int s) {
   fill(0, 255, 0);
   textSize(24);
   text("Hombro Pitch: " + h, 50, 50);
   text("Codo Flexión: " + c, 50, 80);
   String st = "Desconocido";
-  if (s == 1) st = "CERRADO";
-  if (s == 0) st = "ABIERTO";
+  if (s == 3) st = "CERRADO";
+  if (s == 2) st = "ABIERTO";
+  if (s == 4) st = "LASSO";
   text("Mano: " + st, 50, 110);
 }
     
